@@ -5,26 +5,67 @@ import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.pedropathing.api.PoseFactory;
 import com.pedropathing.math.Pose;
+import static com.pedropathing.api.Paths.*;
+import com.pedropathing.paths.Path;
+import com.pedropathing.ivy.Scheduler;
+import static com.pedropathing.ivy.Scheduler.schedule;
+import static com.pedropathing.ivy.pedro.PedroCommands.follow;
+import com.pedropathing.ivy.Command;
+import com.pedropathing.ivy.Scheduler;
+import static com.pedropathing.ivy.Scheduler.schedule;
+import static com.pedropathing.ivy.groups.Groups.sequential;
+import static com.pedropathing.ivy.pedro.PedroCommands.follow;
 
 @Autonomous
 public class Auton extends OpMode {
-    private Follower follower; // Add this
+    private Follower follower;
     private final PoseFactory p = PoseFactory.degrees();
-    private final Pose startPose = p.of(24, 24, 0);
-    private final Pose park = p.of(48, 48, 90);
+    private final Pose startPose = p.of(56, 9, 90);
+    private final Pose shoot = p.of(56,24,90);
+    private final Pose movetoball = p.of(9, 24, 270);
+    private final Pose intake = p.of(9,9,270);
+    private final Pose park = p.of(57.244308231173385, 427.876142698912627, 90);
+    private Path shoot(){
+        return line(startPose, shoot).linear(startPose, shoot);
+    }
+
+    private Path move1(){
+        return line(shoot, movetoball).linear(shoot, movetoball);
+    }
+
+    private Path intake(){
+        return line(movetoball, intake);
+    }
+
+    private Command autoRoutine(){
+        return sequential(
+                follow(follower, shoot()),
+                follow(follower, move1()),
+                follow(follower, intake())
+        );
+    }
+
     @Override
     public void init() {
+        Scheduler.reset();
         follower = Constants.create(hardwareMap);
         follower.setPose(startPose);
+        follower.update();
     }
 
     @Override
     public void start() {
-
+        schedule(autoRoutine());
     }
 
     @Override
     public void loop() {
-
+        follower.update();
+        Scheduler.execute();
+        telemetry.addData("X", follower.pose().x());
+        telemetry.addData("Y", follower.pose().y());
+        telemetry.addData("Heading", Math.toDegrees(follower.pose().heading()));
+        telemetry.addData("Follower Mode", follower.mode());
+        telemetry.update();
     }
 }
