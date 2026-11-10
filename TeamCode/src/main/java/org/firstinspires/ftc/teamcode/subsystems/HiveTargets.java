@@ -11,11 +11,11 @@ public class HiveTargets {
 
     public enum Alliance { RED, BLUE }
 
-    /** How the blue half relates to the red half of the field (Pedro coords, 0-144). */
+    /** How the blue half relates to the red half of the field (Pedro coords, 0-141.5). */
     public enum Mirror {
-        ACROSS_X_CENTER,  // (x, y) -> (144 - x, y)        left/right mirror
-        ACROSS_Y_CENTER,  // (x, y) -> (x, 144 - y)        top/bottom mirror
-        ROTATE_180,       // (x, y) -> (144 - x, 144 - y)  point symmetry
+        ACROSS_X_CENTER,  // (x, y) -> (141.5 - x, y)     left/right mirror
+        ACROSS_Y_CENTER,  // (x, y) -> (x, 141.5 - y)     top/bottom mirror
+        ROTATE_180,       // (x, y) -> (141.5 - x, 141.5 - y) point symmetry
         NONE              // blue uses the exact same coordinates
     }
 
@@ -28,7 +28,8 @@ public class HiveTargets {
     public static double SPLIT_HYSTERESIS = 1.5;
 
     public static Mirror BLUE_MIRROR = Mirror.ACROSS_X_CENTER;   // VERIFY against your field
-    public static double FIELD_SIZE = 144.0;
+    // Visualizer center is (70.75, 70.75), so the symmetric coordinate span is 141.5.
+    public static double FIELD_SIZE = 141.5;
 
     private boolean useUpper = true;
     private boolean initialized = false;
