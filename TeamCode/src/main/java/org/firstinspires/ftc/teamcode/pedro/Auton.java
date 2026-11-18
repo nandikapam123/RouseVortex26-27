@@ -1,46 +1,47 @@
+
 package org.firstinspires.ftc.teamcode.pedro;
 
 import com.pedropathing.follower.Follower;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
-import com.pedropathing.api.PoseFactory;
+
 import com.pedropathing.math.Pose;
-import static com.pedropathing.api.Paths.*;
-import com.pedropathing.paths.Path;
 import com.pedropathing.ivy.Scheduler;
+import com.pedropathing.ivy.Command;
+
 import static com.pedropathing.ivy.Scheduler.schedule;
 import static com.pedropathing.ivy.pedro.PedroCommands.follow;
-import com.pedropathing.ivy.Command;
 import static com.pedropathing.ivy.groups.Groups.sequential;
 
-@Autonomous(name="Auton")
+import static com.pedropathing.ivy.commands.Commands.waitSeconds;
+
+@Autonomous(name = "Auton")
 public class Auton extends OpMode {
+
     private Follower follower;
-    private final PoseFactory p = PoseFactory.degrees();
-    private final Pose startPose = p.of(56, 9, 90);
-    private final Pose shoot = p.of(56,24,90);
-    private final Pose movetoball = p.of(9, 24, 270);
-    private final Pose intake = p.of(9,9,270);
-    private Path shoot(){
-        return line(startPose, shoot).linear(startPose, shoot);
-    }
-    private Path move1(){
-        return line(shoot, movetoball).linear(shoot, movetoball);
-    }
-    private Path intake(){
-        return line(movetoball, intake).linear(movetoball, intake);
-    }
-    private Command autoRoutine(){
+    private final AutonPaths paths = new AutonPaths();
+
+    private final Pose startPose = paths.getStartPose();
+
+    private Command autoRoutine() {
         return sequential(
-                follow(follower, shoot()),
-                follow(follower, move1()),
-                follow(follower, intake())
+                waitSeconds(1.5),
+
+                follow(follower, paths.redLoadingZoneapproach()),
+                follow(follower, paths.path2()),
+                follow(follower, paths.path3()),
+                follow(follower, paths.path4()),
+                follow(follower, paths.path5()),
+                follow(follower, paths.path6()),
+                follow(follower, paths.path7()),
+                follow(follower, paths.path8())
         );
     }
 
     @Override
     public void init() {
         Scheduler.reset();
+
         follower = Constants.create(hardwareMap);
         follower.setPose(startPose);
         follower.update();
@@ -55,16 +56,18 @@ public class Auton extends OpMode {
     public void loop() {
         follower.update();
         Scheduler.execute();
+
         telemetry.addData("X", follower.pose().x());
         telemetry.addData("Y", follower.pose().y());
-        telemetry.addData("Heading", Math.toDegrees(follower.pose().heading()));
+        telemetry.addData("Heading",
+                Math.toDegrees(follower.pose().heading()));
         telemetry.addData("Follower Mode", follower.mode());
+
         telemetry.update();
     }
 
     @Override
     public void stop() {
-        storePose.autonomousEndPose = follower.pose();// Save the final robot position
-
+        storePose.autonomousEndPose = follower.pose();
     }
 }
