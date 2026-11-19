@@ -1,0 +1,114 @@
+
+package org.firstinspires.ftc.teamcode.pedro;
+
+import com.pedropathing.api.PoseFactory;
+import com.pedropathing.math.Pose;
+import com.pedropathing.paths.Path;
+
+public class Paths {
+
+    private final PoseFactory poseFactory = PoseFactory.degrees();
+
+    // Starting position
+    private final Pose start = poseFactory.of(9, 14, 270);
+
+    // Path 1: Move to loading zone approach
+    private final Pose loadingZoneApproach =
+            poseFactory.of(9.0914, 10.0043, 270);
+
+    // Path 2: Move toward upper scoring area
+    private final Pose upperScoringStart =
+            poseFactory.of(9.0914, 10.0043, 270);
+    private final Pose upperScoringEnd =
+            poseFactory.of(34.9201, 118.699, 305);
+    private final Pose upperScoringControl =
+            poseFactory.of(32.5957, 53.3174, 0);
+
+    // Path 3: Move to upper scoring position
+    private final Pose upperPositionStart =
+            poseFactory.of(34.9201, 118.699, 305);
+    private final Pose upperPositionEnd =
+            poseFactory.of(46.7164, 129.7888, 90);
+    private final Pose upperPositionControl =
+            poseFactory.of(49.4532, 113.0268, 0);
+
+    // Path 4: Move back from upper scoring position
+    private final Pose returnPoint =
+            poseFactory.of(35.1293, 118.8885, 90);
+
+    // Path 5: Move toward lower field
+    private final Pose lowerFieldStart =
+            poseFactory.of(35.1293, 118.8885, 90);
+    private final Pose lowerFieldEnd =
+            poseFactory.of(12.4316, 47.1085, 180);
+    private final Pose lowerFieldControl =
+            poseFactory.of(32.7288, 71.8783, 0);
+
+    // Path 6: Move to lower pickup position
+    private final Pose pickupStart =
+            poseFactory.of(12.4316, 47.1085, 180);
+    private final Pose pickupEnd =
+            poseFactory.of(16.8406, 22.8398, 45);
+
+    // Path 7: Move back toward upper field
+    private final Pose finalStart =
+            poseFactory.of(16.8406, 22.8398, 45);
+    private final Pose finalEnd =
+            poseFactory.of(9.7842, 95.3286, 0);
+    private final Pose finalControl =
+            poseFactory.of(33.8992, 64.9164, 0);
+
+
+    public Pose getStartPose() {
+        return start;
+    }
+
+    // Path 1
+    public Path loadingZoneApproach() {
+        return com.pedropathing.api.Paths
+                .line(start, loadingZoneApproach)
+                .constant(loadingZoneApproach);
+    }
+
+    // Path 2
+    public Path moveToUpperScoringArea() {
+        return com.pedropathing.api.Paths
+                .curve(upperScoringStart, upperScoringControl, upperScoringEnd)
+                .linear(upperScoringStart, upperScoringEnd);
+    }
+
+    // Path 3
+    public Path moveToUpperScoringPosition() {
+        return com.pedropathing.api.Paths
+                .curve(upperPositionStart, upperPositionControl, upperPositionEnd)
+                .linear(upperPositionStart, upperPositionEnd);
+    }
+
+    // Path 4
+    public Path returnFromUpperScoringPosition() {
+        return com.pedropathing.api.Paths
+                .line(upperPositionEnd, returnPoint)
+                .constant(returnPoint);
+    }
+
+    // Path 5
+    public Path moveToLowerField() {
+        return com.pedropathing.api.Paths
+                .curve(lowerFieldStart, lowerFieldControl, lowerFieldEnd)
+                .linear(lowerFieldStart, lowerFieldEnd);
+    }
+
+    // Path 6
+    public Path moveToLowerPickup() {
+        return com.pedropathing.api.Paths
+                .line(pickupStart, pickupEnd)
+                .linear(pickupStart, pickupEnd);
+    }
+
+    // Path 7
+    public Path returnTowardUpperField() {
+        return com.pedropathing.api.Paths
+                .curve(finalStart, finalControl, finalEnd)
+                .linear(finalStart, finalEnd);
+    }
+}
