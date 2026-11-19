@@ -12,11 +12,11 @@ public class Paths {
     // Starting position
     private final Pose start = poseFactory.of(9, 14, 270);
 
-    // Path 1: Move to loading zone approach
+    // Path 1: Loading Zone Approach
     private final Pose loadingZoneApproach =
             poseFactory.of(9.0914, 10.0043, 270);
 
-    // Path 2: Move toward upper scoring area
+    // Path 2: Move Toward Upper Field
     private final Pose upperScoringStart =
             poseFactory.of(9.0914, 10.0043, 270);
     private final Pose upperScoringEnd =
@@ -24,19 +24,19 @@ public class Paths {
     private final Pose upperScoringControl =
             poseFactory.of(32.5957, 53.3174, 0);
 
-    // Path 3: Move to upper scoring position
+    // Path 3: Upper Scoring Position
     private final Pose upperPositionStart =
-            poseFactory.of(34.9201, 118.699, 305);
+            poseFactory.of(34.9201, 118.699, 180);
     private final Pose upperPositionEnd =
             poseFactory.of(46.7164, 129.7888, 90);
     private final Pose upperPositionControl =
             poseFactory.of(49.4532, 113.0268, 0);
 
-    // Path 4: Move back from upper scoring position
+    // Path 4: Return From Upper Position
     private final Pose returnPoint =
             poseFactory.of(35.1293, 118.8885, 90);
 
-    // Path 5: Move toward lower field
+    // Path 5: Move Toward Lower Field
     private final Pose lowerFieldStart =
             poseFactory.of(35.1293, 118.8885, 90);
     private final Pose lowerFieldEnd =
@@ -44,13 +44,13 @@ public class Paths {
     private final Pose lowerFieldControl =
             poseFactory.of(32.7288, 71.8783, 0);
 
-    // Path 6: Move to lower pickup position
+    // Path 6: Move to Pickup Position
     private final Pose pickupStart =
             poseFactory.of(12.4316, 47.1085, 180);
     private final Pose pickupEnd =
             poseFactory.of(16.8406, 22.8398, 45);
 
-    // Path 7: Move back toward upper field
+    // Path 7: Return Toward Upper Field
     private final Pose finalStart =
             poseFactory.of(16.8406, 22.8398, 45);
     private final Pose finalEnd =
