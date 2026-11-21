@@ -25,6 +25,7 @@ public class Auton extends OpMode {
 
     private Command autoRoutine() {
         return sequential(
+                follow(follower, paths.moveToOpeningShotPosition()),
                 shooter.shootFour(),
                 follow(follower, paths.loadingZoneApproach()),
                 waitMs(PICKUP_PAUSE_MS),
