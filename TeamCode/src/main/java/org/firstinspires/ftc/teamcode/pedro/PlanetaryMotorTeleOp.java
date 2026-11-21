@@ -1,155 +1,181 @@
 package org.firstinspires.ftc.teamcode.pedro;
 
+import com.pedropathing.api.PoseFactory;
+import com.pedropathing.drivetrain.DrivePowers;
 import com.pedropathing.follower.Follower;
+import com.pedropathing.follower.ManualDrive;
+import com.pedropathing.math.Pose;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
-import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.Servo;
 
-import com.pedropathing.math.Pose;
-import com.pedropathing.api.PoseFactory;
-
-
-
-/** A: shooter on/off, B/Y: power, Dpad U/D: servo angle, X: auto-drive to closest shooting spot, RT/LT: intake in/out, RB: lower intake up/down. */
-@TeleOp(name = "Planetary Motor - A Toggle", group = "Motor Tests")
+/**
+ * Main driver TeleOp. Field-centric drive, shooter, intake, flower ramp, hood, and turret.
+ *
+ * Gamepad 1 (PlayStation names / Xbox names):
+ *   Left stick          drive (field-centric)
+ *   Right stick X       turn
+ *   R2 / RT (hold)      shoot: opens the servo blocker so pollen reaches the flywheel
+ *                       (the flywheel spins the whole match)
+ *   L2 / LT (hold)      intake flowers
+ *   Circle / B (hold)   reverse intake
+ *   R1 / RB             flower ramp up/down
+ *   L1 / LB             slow mode on/off (70% max speed, for parking)
+ *   Square / X          turret auto-aim on/off (toggle off/on to restart if aim pauses at a limit)
+ *   D-pad up/down       turret Hive cell: up = raised cell, down = lower cell
+ *   D-pad right/left    hood angle up/down
+ *   Options / Start     auto-drive to the closest shooting spot (move a stick to cancel)
+ *   Triangle / Y        shooter power +0.01
+ *   Cross / A           shooter power -0.01
+ *   Share / Back        reset field-centric "forward" to the way the robot faces now
+ *
+ * Turret buttons come from TurretController.updateTeleOp. During INIT (Gamepad 1):
+ * A marks turret calibration, X redoes it, D-pad left/right picks the alliance,
+ * B confirms the practice start pose.
+ */
+@TeleOp(name = "Driver TeleOp")
 public class PlanetaryMotorTeleOp extends OpMode {
-    private static final String MOTOR_NAME = "pm";
-    private static final String intake = "intake";
+    // Flywheel ("pm") + gate ("blocker") live in Shooter; intake ("intake") + flower ramp
+    // ("lowerIntake") live in Intake. Auton uses the same classes, so names and positions match.
     private double MOTOR_POWER = 0.7;
+    private static final double INTAKE_POWER = 0.8;
 
-    // ---------- Servo (angle) ----------
+    // ---------- Drive ----------
+    private static final double SLOW_SPEED = 0.7;        // slow mode = 30% slower than max
+    // Field heading the driver treats as "forward" on the stick. 0 deg = the way the robot
+    // faces at the Auton / practice start pose, away from the alliance wall.
+    // Share/Back resets this during the match.
+    private static final double DRIVER_FORWARD_HEADING = Math.toRadians(0);
+    private double driverForward = DRIVER_FORWARD_HEADING;
+    private boolean slowMode = false;
+
+    // ---------- Hood servo (angle) ----------
     private static final String SERVO_NAME = "hood";     // must match the hardware config name
     private static final double SERVO_RANGE_DEG = 300;   // servo's full range: 0.0 = 0°, 1.0 = 300°
     private double servoPos = 0.5;                       // 0.0 to 1.0, start in the middle
 
-    // ---------- Lower intake servo (flips between UP and DOWN) ----------
-    private static final String LOWER_INTAKE_NAME = "lowerIntake"; // must match the hardware config name
-    private static final double LOWER_RANGE_DEG = 300;  // servo's full range: 0.0 = 0°, 1.0 = 300°
-    private static final double LOWER_UP_DEG = 0;       // stowed
-    private static final double LOWER_DOWN_DEG = 100;   // down to grab pollen
+    // ---------- Flower ramp (flips between UP and DOWN) ----------
     private boolean lowerDown = false;
 
-    private DcMotor shoot;
-    private Servo lowerIntake;
-    private DcMotor INTAKE;
+    private Shooter shooter;
+    private Intake intake;
     private Servo servo;
-    private boolean running;
-    private boolean previousA;
     private Follower follower;
-    private boolean autoAiming = false;
+    private TurretController turret;
+    private boolean autoDriving = false;
     private final PoseFactory p = PoseFactory.degrees(); // lets you write headings in degrees
-    private final Pose START_POSE = p.of(72, 8, 90);   //change this to where out bot starts at init
 
     // PLACEHOLDERS, replace with real x y & headings measured on the field
     private final Pose[] shootPoses = {
             p.of(39, 118, 315),
-            p.of(39,22,50 )
-//            p.of(24, 120, 135),
-//            p.of(30, 114, 135),
-//            p.of(14, 116, 125),
-//            p.of(28, 128, 145),
+            p.of(39, 22, 50)
     };
+
     @Override
     public void init() {
-        shoot = hardwareMap.get(DcMotor.class, MOTOR_NAME);
-        INTAKE = hardwareMap.get(DcMotor.class, intake);
+        shooter = new Shooter(hardwareMap); // flywheel off, gate closed
+        intake = new Intake(hardwareMap);   // intake off, flower ramp up
+        lowerDown = false;
+
         servo = hardwareMap.get(Servo.class, SERVO_NAME);
-
-
-        shoot.setPower(0);
-        shoot.setDirection(DcMotor.Direction.FORWARD);
-        shoot.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        shoot.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        running = false;
-
         servo.setPosition(servoPos);
 
-        lowerIntake = hardwareMap.get(Servo.class, LOWER_INTAKE_NAME);
-        lowerIntake.setPosition(LOWER_UP_DEG / LOWER_RANGE_DEG); // start stowed
-
         follower = Constants.create(hardwareMap);
-        follower.setPose(START_POSE);
+        turret = new TurretController(hardwareMap);
+        // Starts from Auton's end pose if Auton just ran, otherwise the practice start pose.
+        turret.seedTeleOpPose(follower);
+    }
 
-        telemetry.addLine("Ready. Place bot at START_POSE, then press START.");
+    @Override
+    public void init_loop() {
+        // Gamepad 1: alliance (D-pad L/R), confirm practice pose (B), turret calibration (A, X redo).
+        turret.teleOpInit(gamepad1, telemetry);
         telemetry.update();
     }
 
     @Override
     public void start() {
-        running = false;
-        previousA = gamepad1.a;
+        turret.startTeleOp();
+        driverForward = DRIVER_FORWARD_HEADING;
+        slowMode = false;
+        autoDriving = false;
     }
 
     @Override
     public void loop() {
+        // ---------- Drive ----------
+        if (gamepad1.leftBumperWasPressed()) slowMode = !slowMode;
+        if (gamepad1.backWasPressed()) driverForward = follower.pose().heading();
 
-        // Hold RT to intake, hold LT to reverse (clear jams / spit out extras)
-        if (gamepad1.right_trigger > 0.2) {
-            INTAKE.setPower(0.8);
-        } else if (gamepad1.left_trigger > 0.2) {
-            INTAKE.setPower(-0.8);
-        } else {
-            INTAKE.setPower(0);
-        }
-
-        if (gamepad1.xWasPressed()) {
+        if (gamepad1.startWasPressed()) {
             follower.hold(closestShootPose());
-            autoAiming = true;
+            autoDriving = true;
         }
 
-        boolean touchingSticks = Math.abs(gamepad1.left_stick_x) > 0.15
-                || Math.abs(gamepad1.left_stick_y) > 0.15
-                || Math.abs(gamepad1.right_stick_x) > 0.15;
-        if (touchingSticks) autoAiming = false; // driver takes over
+        double forward = -gamepad1.left_stick_y;
+        double lateral = gamepad1.left_stick_x;
+        double turn = gamepad1.right_stick_x;
+        boolean touchingSticks = Math.abs(forward) > 0.15 || Math.abs(lateral) > 0.15
+                || Math.abs(turn) > 0.15;
+        if (touchingSticks) autoDriving = false; // driver takes over
 
-        if (!autoAiming) {
-            follower.manual(-gamepad1.left_stick_y, gamepad1.left_stick_x, gamepad1.right_stick_x);
+        if (!autoDriving) {
+            double speed = slowMode ? SLOW_SPEED : 1.0;
+            DrivePowers powers = ManualDrive.fieldCentric(
+                    forward * speed,
+                    lateral * speed,
+                    turn * speed,
+                    follower.pose().heading() - driverForward
+            );
+            follower.manual(powers);
         }
         follower.update();
 
-        boolean currentA = gamepad1.a;
-        // toggled once per press, even if A stays held down.
-
-        if (gamepad1.bWasPressed()){
-            MOTOR_POWER += 0.01;
+        // ---------- Intake: L2 in, Circle reverse (reverse wins if both held) ----------
+        if (gamepad1.b) {
+            intake.setPower(-INTAKE_POWER);
+        } else if (gamepad1.left_trigger > 0.2) {
+            intake.setPower(INTAKE_POWER);
+        } else {
+            intake.setPower(0);
         }
-        if (gamepad1.yWasPressed()){
-            MOTOR_POWER -= 0.01;
-        }
 
-        // Dpad up/down: adjust servo angle
-        if (gamepad1.dpadUpWasPressed())   servoPos += 0.01;
-        if (gamepad1.dpadDownWasPressed()) servoPos -= 0.01;
+        // ---------- Flower ramp: R1 flips UP/DOWN ----------
+        if (gamepad1.rightBumperWasPressed()) lowerDown = !lowerDown;
+        intake.setRampDown(lowerDown);
+        double lowerDeg = lowerDown ? Intake.RAMP_DOWN_DEG : Intake.RAMP_UP_DEG;
+
+        // ---------- Shooter: flywheel always spins, hold R2 to open the blocker ----------
+        if (gamepad1.yWasPressed()) MOTOR_POWER += 0.01;
+        if (gamepad1.aWasPressed()) MOTOR_POWER -= 0.01;
+        MOTOR_POWER = Math.max(0, Math.min(1, MOTOR_POWER));
+        shooter.setFlywheelPower(MOTOR_POWER);
+        boolean shooting = gamepad1.right_trigger > 0.2;
+        shooter.setGateOpen(shooting);
+
+        // ---------- Hood: D-pad right/left (D-pad up/down belongs to the turret) ----------
+        if (gamepad1.dpadRightWasPressed()) servoPos += 0.01;
+        if (gamepad1.dpadLeftWasPressed())  servoPos -= 0.01;
         servoPos = Math.max(0, Math.min(1, servoPos));   // servo only accepts 0.0 to 1.0
         servo.setPosition(servoPos);
 
-        // RB: flip lower intake between UP and DOWN
-        if (gamepad1.rightBumperWasPressed()) lowerDown = !lowerDown;
-        double lowerDeg = lowerDown ? LOWER_DOWN_DEG : LOWER_UP_DEG;
-        lowerIntake.setPosition(lowerDeg / LOWER_RANGE_DEG); // degrees -> 0.0-1.0
-
-        if (currentA && !previousA) {
-            running = !running;
-        }
-        previousA = currentA;
-
-        shoot.setPower(running ? MOTOR_POWER : 0);
-        telemetry.addData("Motor", running ? "ON" : "OFF");
-        telemetry.addData("Power", running ? MOTOR_POWER : 0);
-        // commanded position, not measured (servos don't report back)
-        telemetry.addData("Servo pos", "%.2f", servoPos);
-        telemetry.addData("Servo angle", "%.1f°", servoPos * SERVO_RANGE_DEG);
-        telemetry.addData("Lower intake", "%s (%.0f°)", lowerDown ? "DOWN" : "UP", lowerDeg);
-        telemetry.addLine("A: shooter | B/Y: power | Dpad U/D: angle | X: auto-aim | RT/LT: intake | RB: lower intake");
+        // ---------- Turret: Square toggles auto-aim, D-pad up/down picks the cell ----------
         Pose pose = follower.pose();
+        turret.updateTeleOp(pose, gamepad1, telemetry);
+
+        // ---------- Telemetry ----------
+        telemetry.addData("Flywheel power", "%.2f", MOTOR_POWER);
+        telemetry.addData("Blocker", shooting ? "OPEN (shooting)" : "CLOSED");
+        telemetry.addData("Speed", slowMode ? "SLOW (70%)" : "FULL");
+        telemetry.addData("Flower ramp", "%s (%.0f°)", lowerDown ? "DOWN" : "UP", lowerDeg);
+        // commanded position, not measured (servos don't report back)
+        telemetry.addData("Hood", "%.2f (%.1f°)", servoPos, servoPos * SERVO_RANGE_DEG);
         telemetry.addData("Pose", "x=%.1f y=%.1f h=%.1f°", pose.x(), pose.y(), Math.toDegrees(pose.heading()));
-        telemetry.addData("Auto-aim", autoAiming);
-        // shows which spot it chose:
+        telemetry.addData("Auto-drive", autoDriving);
         Pose target = closestShootPose();
         telemetry.addData("Nearest spot", "x=%.1f y=%.1f", target.x(), target.y());
+        telemetry.addLine("R2 shoot | L2 intake | O reverse | R1 ramp | L1 slow | □ turret aim | D-pad U/D cell | D-pad L/R hood | Options auto-drive | △/X power | Share reset fwd");
         telemetry.update();
-
     }
 
     private Pose closestShootPose() {
@@ -167,15 +193,10 @@ public class PlanetaryMotorTeleOp extends OpMode {
         return best;
     }
 
-
     @Override
     public void stop() {
-        running = false;
-        if (shoot != null) {
-            shoot.setPower(0);
-        }
-        if (INTAKE != null) {
-            INTAKE.setPower(0);
-        }
+        if (shooter != null) shooter.stop();
+        if (intake != null) intake.stop();
+        if (turret != null) turret.stop();
     }
 }

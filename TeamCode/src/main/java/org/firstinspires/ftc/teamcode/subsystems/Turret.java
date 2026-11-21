@@ -1,5 +1,7 @@
 package org.firstinspires.ftc.teamcode.subsystems;
 
+import android.content.Context;
+import android.content.SharedPreferences;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
@@ -65,6 +67,11 @@ public class Turret {
 
     private final CRServo servo;
     private final DcMotorEx encoder;
+    private final SharedPreferences calibrationPreferences;
+    private final String leftDeltaKey;
+    private final String rightDeltaKey;
+    private final String centerSwitchKey;
+    private boolean calibrationSaved;
     private DigitalChannel homeSwitch = null;
     private final ElapsedTime timer = new ElapsedTime();
     private final ElapsedTime homingTimer = new ElapsedTime();
@@ -102,6 +109,15 @@ public class Turret {
         servo.setDirection(SERVO_REVERSED ? DcMotorSimple.Direction.REVERSE
                 : DcMotorSimple.Direction.FORWARD);
         encoder = hw.get(DcMotorEx.class, encoderName);
+        calibrationPreferences = hw.appContext == null ? null
+                : hw.appContext.getSharedPreferences("rouse_turret_clearance_v1", Context.MODE_PRIVATE);
+        String calibrationKey = servoName + "." + encoderName;
+        leftDeltaKey = calibrationKey + ".leftDelta";
+        rightDeltaKey = calibrationKey + ".rightDelta";
+        centerSwitchKey = calibrationKey + ".centerSwitchVerified";
+        calibrationSaved = calibrationPreferences != null
+                && calibrationPreferences.contains(leftDeltaKey)
+                && calibrationPreferences.contains(rightDeltaKey);
 
         if (USE_HOME_SWITCH) {
             homeSwitch = hw.tryGet(DigitalChannel.class, HOME_SWITCH_NAME);
@@ -149,16 +165,70 @@ public class Turret {
                 && Double.isFinite(RobotState.turretUpperClearance);
     }
 
+    public boolean hasSavedCableCalibration() {
+        return calibrationSaved;
+    }
+
     public void clearCableCalibration() {
         off();
         RobotState.turretZeroValid = false;
         RobotState.turretLowerClearance = Double.NaN;
         RobotState.turretUpperClearance = Double.NaN;
+        forgetSavedClearance();
     }
 
     public boolean calibrateCableClearance(int center, int left, int right) {
+        return calibrateCableClearance(center, left, right, false);
+    }
+
+    public boolean calibrateCableClearance(int center, int left, int right, boolean centerSwitchVerified) {
         int leftDelta = left - center;
         int rightDelta = right - center;
+        if (!applyCableClearance(center, leftDelta, rightDelta)) {
+            return false;
+        }
+        calibrationSaved = calibrationPreferences != null && calibrationPreferences.edit()
+                .putInt(leftDeltaKey, leftDelta)
+                .putInt(rightDeltaKey, rightDelta)
+                .putBoolean(centerSwitchKey, centerSwitchVerified)
+                .commit();
+        return true;
+    }
+
+    public boolean hasVerifiedCenterSwitch() {
+        return calibrationSaved && hasHomeSwitch() && calibrationPreferences.getBoolean(centerSwitchKey, false);
+    }
+
+    /** Restore during INIT from a center switch verified during full calibration. */
+    public void restoreCableCalibrationFromSwitch() {
+        if (hasVerifiedCenterSwitch() && isSwitchPressed()) {
+            restoreCableCalibrationAtCenter();
+        }
+    }
+
+    /** Call while the turret is aligned with its physical center mark. */
+    public boolean restoreCableCalibrationAtCenter() {
+        if (!calibrationSaved) {
+            return false;
+        }
+        int leftDelta = calibrationPreferences.getInt(leftDeltaKey, 0);
+        int rightDelta = calibrationPreferences.getInt(rightDeltaKey, 0);
+        // The stored ticks are offsets. Read a fresh zero because the encoder is relative.
+        if (applyCableClearance(encoderTicks(), leftDelta, rightDelta)) {
+            return true;
+        }
+        forgetSavedClearance();
+        return false;
+    }
+
+    private void forgetSavedClearance() {
+        if (calibrationSaved) {
+            calibrationPreferences.edit().remove(leftDeltaKey).remove(rightDeltaKey).remove(centerSwitchKey).commit();
+            calibrationSaved = false;
+        }
+    }
+
+    private boolean applyCableClearance(int center, int leftDelta, int rightDelta) {
         int sign = leftDelta > 0 ? 1 : -1;
         double upper = Math.min(HARD_LIMIT, sign * leftDelta / TICKS_PER_RAD);
         double lower = Math.max(-HARD_LIMIT, sign * rightDelta / TICKS_PER_RAD);
