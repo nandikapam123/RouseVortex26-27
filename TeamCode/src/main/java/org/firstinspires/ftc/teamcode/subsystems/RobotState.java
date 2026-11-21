@@ -8,6 +8,9 @@ package org.firstinspires.ftc.teamcode.subsystems;
 public class RobotState {
     public static double turretZeroTicks = 0;
     public static boolean turretZeroValid = false;
+    public static int turretEncoderSign = 1;
+    public static double turretLowerClearance = Double.NaN;
+    public static double turretUpperClearance = Double.NaN;
 
     public static HiveTargets.Alliance alliance = HiveTargets.Alliance.RED;
 

@@ -8,10 +8,24 @@ import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 public class roboCentric extends OpMode {
 
     private Follower follower;
+    private TurretController turret;
 
     @Override
     public void init() {
         follower = Constants.create(hardwareMap);
+        turret = new TurretController(hardwareMap);
+        turret.seedTeleOpPose(follower);
+    }
+
+    @Override
+    public void init_loop() {
+        turret.teleOpInit(gamepad1, telemetry);
+        telemetry.update();
+    }
+
+    @Override
+    public void start() {
+        turret.startTeleOp();
     }
 
     @Override
@@ -23,6 +37,13 @@ public class roboCentric extends OpMode {
         );
 
         follower.update();
+        turret.updateTeleOp(follower.pose(), gamepad1, telemetry);
+        telemetry.update();
+    }
+
+    @Override
+    public void stop() {
+        if (turret != null) turret.stop();
     }
 }
 
