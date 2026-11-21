@@ -10,13 +10,19 @@ public class Paths {
     private final PoseFactory poseFactory = PoseFactory.degrees();
 
     // Starting position
-    private final Pose start = poseFactory.of(9, 14, 270);
+    private final Pose start = poseFactory.of(9, 24, 270);
 
-    // Path 1: Loading Zone Approach
+    // Path 1: Opening shot position
+    private final Pose openingShotPosition =
+            poseFactory.of(22.6906, 24.2599, 45);
+
+    // Path 2: Loading Zone Approach
     private final Pose loadingZoneApproach =
             poseFactory.of(9.0914, 10.0043, 270);
+    private final Pose loadingZoneApproachControl =
+            poseFactory.of(8.1737, 19.9278, 0);
 
-    // Path 2: Move Toward Upper Field
+    // Path 3: Move Toward Upper Field
     private final Pose upperScoringStart =
             poseFactory.of(9.0914, 10.0043, 270);
     private final Pose upperScoringEnd =
@@ -24,7 +30,7 @@ public class Paths {
     private final Pose upperScoringControl =
             poseFactory.of(32.5957, 53.3174, 0);
 
-    // Path 3: Upper Scoring Position
+    // Path 4: Upper Scoring Position
     private final Pose upperPositionStart =
             poseFactory.of(34.9201, 118.699, 180);
     private final Pose upperPositionEnd =
@@ -32,11 +38,11 @@ public class Paths {
     private final Pose upperPositionControl =
             poseFactory.of(49.4532, 113.0268, 0);
 
-    // Path 4: Return From Upper Position
+    // Path 5: Return From Upper Position
     private final Pose returnPoint =
             poseFactory.of(35.1293, 118.8885, 90);
 
-    // Path 5: Move Toward Lower Field
+    // Path 6: Move Toward Lower Field
     private final Pose lowerFieldStart =
             poseFactory.of(35.1293, 118.8885, 90);
     private final Pose lowerFieldEnd =
@@ -44,13 +50,13 @@ public class Paths {
     private final Pose lowerFieldControl =
             poseFactory.of(32.7288, 71.8783, 0);
 
-    // Path 6: Move to Pickup Position
+    // Path 7: Move to Pickup Position
     private final Pose pickupStart =
             poseFactory.of(12.4316, 47.1085, 180);
     private final Pose pickupEnd =
             poseFactory.of(16.8406, 22.8398, 45);
 
-    // Path 7: Return Toward Upper Field
+    // Path 8: Return Toward Upper Field
     private final Pose finalStart =
             poseFactory.of(16.8406, 22.8398, 45);
     private final Pose finalEnd =
@@ -64,48 +70,55 @@ public class Paths {
     }
 
     // Path 1
-    public Path loadingZoneApproach() {
+    public Path moveToOpeningShotPosition() {
         return com.pedropathing.api.Paths
-                .line(start, loadingZoneApproach)
-                .constant(loadingZoneApproach);
+                .line(start, openingShotPosition)
+                .linear(start, openingShotPosition);
     }
 
     // Path 2
+    public Path loadingZoneApproach() {
+        return com.pedropathing.api.Paths
+                .curve(openingShotPosition, loadingZoneApproachControl, loadingZoneApproach)
+                .constant(loadingZoneApproach);
+    }
+
+    // Path 3
     public Path moveToUpperScoringArea() {
         return com.pedropathing.api.Paths
                 .curve(upperScoringStart, upperScoringControl, upperScoringEnd)
                 .linear(upperScoringStart, upperScoringEnd);
     }
 
-    // Path 3
+    // Path 4
     public Path moveToUpperScoringPosition() {
         return com.pedropathing.api.Paths
                 .curve(upperPositionStart, upperPositionControl, upperPositionEnd)
                 .linear(upperPositionStart, upperPositionEnd);
     }
 
-    // Path 4
+    // Path 5
     public Path returnFromUpperScoringPosition() {
         return com.pedropathing.api.Paths
                 .line(upperPositionEnd, returnPoint)
                 .constant(returnPoint);
     }
 
-    // Path 5
+    // Path 6
     public Path moveToLowerField() {
         return com.pedropathing.api.Paths
                 .curve(lowerFieldStart, lowerFieldControl, lowerFieldEnd)
                 .linear(lowerFieldStart, lowerFieldEnd);
     }
 
-    // Path 6
+    // Path 7
     public Path moveToLowerPickup() {
         return com.pedropathing.api.Paths
                 .line(pickupStart, pickupEnd)
                 .linear(pickupStart, pickupEnd);
     }
 
-    // Path 7
+    // Path 8
     public Path returnTowardUpperField() {
         return com.pedropathing.api.Paths
                 .curve(finalStart, finalControl, finalEnd)

@@ -1,5 +1,7 @@
 package org.firstinspires.ftc.teamcode.subsystems;
 
+import android.content.Context;
+import android.content.SharedPreferences;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
@@ -18,7 +20,7 @@ import com.qualcomm.robotcore.util.Range;
  *   Encoder and turret spin the same direction (each mesh flips once).
  *
  * Angle convention: radians, 0 = turret facing intake/front, CCW positive
- * (same as Pedro heading). Range is HARD-limited to ±180° for the wires.
+ * (same as Pedro heading). Measured cable clearance is capped at ±280°.
  */
 public class Turret {
 
@@ -32,8 +34,8 @@ public class Turret {
     public static boolean SERVO_REVERSED   = false;  // flip so +power = turret CCW
 
     // ===================== Cable limits =====================
-    public static double HARD_LIMIT    = Math.toRadians(180);  // NEVER beyond this
-    public static double SAFETY_MARGIN = Math.toRadians(5);    // aim targets stay within ±175°
+    public static final double HARD_LIMIT = Math.toRadians(280);
+    public static final double SAFETY_MARGIN = Math.toRadians(8);
     public static double SLOWDOWN_ZONE = Math.toRadians(25);   // power ramps down near a limit
     public static double MIN_LIMIT_POWER = 0.08;
 
@@ -42,7 +44,7 @@ public class Turret {
     public static double kD = 0.03;    // power per rad/s of (target speed - turret speed)
     public static double kV = 0.10;    // feedforward: power per rad/s of target motion
     public static double kS = 0.06;    // static friction / servo deadband
-    public static double MAX_POWER = 1.0;
+    public static double MAX_POWER = 0.22;
     public static double TOLERANCE = Math.toRadians(1.5);
     public static double RATE_FILTER = 0.3;
 
@@ -65,6 +67,11 @@ public class Turret {
 
     private final CRServo servo;
     private final DcMotorEx encoder;
+    private final SharedPreferences calibrationPreferences;
+    private final String leftDeltaKey;
+    private final String rightDeltaKey;
+    private final String centerSwitchKey;
+    private boolean calibrationSaved;
     private DigitalChannel homeSwitch = null;
     private final ElapsedTime timer = new ElapsedTime();
     private final ElapsedTime homingTimer = new ElapsedTime();
@@ -75,12 +82,22 @@ public class Turret {
     private boolean homingFailed = false;
 
     private double zeroTicks;
+    private int encoderSign;
+    private double lowerClearance = -HARD_LIMIT;
+    private double upperClearance = HARD_LIMIT;
     private double goalX = 0, goalY = 0;
     private double holdTarget = 0, manualPower = 0;
 
     private double target = 0, lastTarget = Double.NaN;
     private double lastAngle, targetRate = 0, lastPower = 0;
-    private boolean goalJumped = false, branchJumped = false, unwinding = false;
+    private boolean goalJumped = false;
+    private boolean aimLimitReached = false;
+    private String fault = "";
+    private long progressTime;
+    private double progressAngle;
+    private int powerSign;
+    private static final long NO_PROGRESS_NS = 500_000_000L;
+    private static final double MIN_PROGRESS = Math.toRadians(0.5);
 
     /**
      * @param encoderName name of the Control Hub MOTOR PORT whose encoder jack the
@@ -88,9 +105,19 @@ public class Turret {
      */
     public Turret(HardwareMap hw, String servoName, String encoderName) {
         servo = hw.get(CRServo.class, servoName);
+        servo.setPower(0);
         servo.setDirection(SERVO_REVERSED ? DcMotorSimple.Direction.REVERSE
                 : DcMotorSimple.Direction.FORWARD);
         encoder = hw.get(DcMotorEx.class, encoderName);
+        calibrationPreferences = hw.appContext == null ? null
+                : hw.appContext.getSharedPreferences("rouse_turret_clearance_v1", Context.MODE_PRIVATE);
+        String calibrationKey = servoName + "." + encoderName;
+        leftDeltaKey = calibrationKey + ".leftDelta";
+        rightDeltaKey = calibrationKey + ".rightDelta";
+        centerSwitchKey = calibrationKey + ".centerSwitchVerified";
+        calibrationSaved = calibrationPreferences != null
+                && calibrationPreferences.contains(leftDeltaKey)
+                && calibrationPreferences.contains(rightDeltaKey);
 
         if (USE_HOME_SWITCH) {
             homeSwitch = hw.tryGet(DigitalChannel.class, HOME_SWITCH_NAME);
@@ -100,6 +127,12 @@ public class Turret {
         // Reuse Auto's zero if we have one; otherwise assume the turret is on the center mark.
         zeroTicks = RobotState.turretZeroValid ? RobotState.turretZeroTicks
                 : encoder.getCurrentPosition();
+        encoderSign = RobotState.turretZeroValid ? RobotState.turretEncoderSign
+                : ENCODER_REVERSED ? -1 : 1;
+        if (hasCableCalibration()) {
+            lowerClearance = RobotState.turretLowerClearance;
+            upperClearance = RobotState.turretUpperClearance;
+        }
         lastAngle = getAngle();
         timer.reset();
     }
@@ -115,7 +148,102 @@ public class Turret {
     public void holdAngle(double rad) { holdTarget = rad; setMode(Mode.HOLD_ANGLE); }
     public void center() { holdAngle(0); }
     public void manual(double power) { manualPower = power; mode = Mode.MANUAL; resetHistory(); } // cancels homing
-    public void off() { mode = Mode.OFF; }
+    public void off() {
+        mode = Mode.OFF;
+        powerSign = 0;
+        setPower(0);
+    }
+
+    public int encoderTicks() { return encoder.getCurrentPosition(); }
+
+    public double distanceFromMark(int markTicks) {
+        return Math.abs((encoderTicks() - markTicks) / TICKS_PER_RAD);
+    }
+
+    public boolean hasCableCalibration() {
+        return RobotState.turretZeroValid && Double.isFinite(RobotState.turretLowerClearance)
+                && Double.isFinite(RobotState.turretUpperClearance);
+    }
+
+    public boolean hasSavedCableCalibration() {
+        return calibrationSaved;
+    }
+
+    public void clearCableCalibration() {
+        off();
+        RobotState.turretZeroValid = false;
+        RobotState.turretLowerClearance = Double.NaN;
+        RobotState.turretUpperClearance = Double.NaN;
+        forgetSavedClearance();
+    }
+
+    public boolean calibrateCableClearance(int center, int left, int right) {
+        return calibrateCableClearance(center, left, right, false);
+    }
+
+    public boolean calibrateCableClearance(int center, int left, int right, boolean centerSwitchVerified) {
+        int leftDelta = left - center;
+        int rightDelta = right - center;
+        if (!applyCableClearance(center, leftDelta, rightDelta)) {
+            return false;
+        }
+        calibrationSaved = calibrationPreferences != null && calibrationPreferences.edit()
+                .putInt(leftDeltaKey, leftDelta)
+                .putInt(rightDeltaKey, rightDelta)
+                .putBoolean(centerSwitchKey, centerSwitchVerified)
+                .commit();
+        return true;
+    }
+
+    public boolean hasVerifiedCenterSwitch() {
+        return calibrationSaved && hasHomeSwitch() && calibrationPreferences.getBoolean(centerSwitchKey, false);
+    }
+
+    /** Restore during INIT from a center switch verified during full calibration. */
+    public void restoreCableCalibrationFromSwitch() {
+        if (hasVerifiedCenterSwitch() && isSwitchPressed()) {
+            restoreCableCalibrationAtCenter();
+        }
+    }
+
+    /** Call while the turret is aligned with its physical center mark. */
+    public boolean restoreCableCalibrationAtCenter() {
+        if (!calibrationSaved) {
+            return false;
+        }
+        int leftDelta = calibrationPreferences.getInt(leftDeltaKey, 0);
+        int rightDelta = calibrationPreferences.getInt(rightDeltaKey, 0);
+        // The stored ticks are offsets. Read a fresh zero because the encoder is relative.
+        if (applyCableClearance(encoderTicks(), leftDelta, rightDelta)) {
+            return true;
+        }
+        forgetSavedClearance();
+        return false;
+    }
+
+    private void forgetSavedClearance() {
+        if (calibrationSaved) {
+            calibrationPreferences.edit().remove(leftDeltaKey).remove(rightDeltaKey).remove(centerSwitchKey).commit();
+            calibrationSaved = false;
+        }
+    }
+
+    private boolean applyCableClearance(int center, int leftDelta, int rightDelta) {
+        int sign = leftDelta > 0 ? 1 : -1;
+        double upper = Math.min(HARD_LIMIT, sign * leftDelta / TICKS_PER_RAD);
+        double lower = Math.max(-HARD_LIMIT, sign * rightDelta / TICKS_PER_RAD);
+        if (lower + SAFETY_MARGIN >= -TOLERANCE || upper - SAFETY_MARGIN <= TOLERANCE) {
+            return false;
+        }
+        zeroTicks = center;
+        encoderSign = sign;
+        lowerClearance = RobotState.turretLowerClearance = lower;
+        upperClearance = RobotState.turretUpperClearance = upper;
+        acceptZero();
+        lastAngle = getAngle();
+        resetHistory();
+        return true;
+    }
 
     /** Find the exact zero with the switch. With no switch, just accepts the mark as zero. */
     public void home() {
@@ -136,13 +264,12 @@ public class Turret {
 
     // ===================== State =====================
     public double getAngle() {
-        double rad = (encoder.getCurrentPosition() - zeroTicks) / TICKS_PER_RAD;
-        return ENCODER_REVERSED ? -rad : rad;
+        return encoderSign * (encoderTicks() - zeroTicks) / TICKS_PER_RAD;
     }
     public double getTarget()     { return target; }
     public double getPower()      { return lastPower; }
     public Mode getMode()         { return mode; }
-    public boolean isUnwinding()  { return unwinding; }
+    public String getFault()     { return fault; }
     public boolean isHomed()      { return RobotState.turretZeroValid; }
     public boolean homingFailed() { return homingFailed; }
     public boolean hasHomeSwitch(){ return homeSwitch != null; }
@@ -152,7 +279,7 @@ public class Turret {
 
     /** Aimed, not swinging around, not homing -> safe to shoot. */
     public boolean isOnTarget() {
-        return mode == Mode.TRACK_GOAL && !unwinding && Math.abs(target - getAngle()) < TOLERANCE;
+        return mode == Mode.TRACK_GOAL && fault.isEmpty() && Math.abs(target - getAngle()) < TOLERANCE;
     }
 
     // ===================== Main loop (call every loop, after follower.update()) =====================
@@ -168,32 +295,49 @@ public class Turret {
         double velocity = (current - lastAngle) / dt;
         lastAngle = current;
 
+        if (current < lowerClearance || current > upperClearance) {
+            fault = "Past a marked cable limit. Check the wires before restarting.";
+        }
+        if (!fault.isEmpty()) {
+            off();
+            return;
+        }
         switch (mode) {
             case OFF:     setPower(0); return;
             case MANUAL:  setPower(limitAware(manualPower, current)); return;
             case HOMING:  updateHoming(current); return;
             case HOLD_ANGLE:
-                target = Range.clip(holdTarget, -usable(), usable());
+                target = Range.clip(holdTarget, lowerTargetLimit(), upperTargetLimit());
                 break;
             case TRACK_GOAL:
                 target = chooseBranch(robotRelativeAngleToGoal(robotX, robotY, robotHeading), current);
                 break;
         }
 
-        // Feedforward: how fast the aim point is moving. Zeroed on jumps (hive switch / unwind).
-        boolean jumped = Double.isNaN(lastTarget) || goalJumped || branchJumped;
+        if (!Double.isFinite(target)) {
+            targetRate = 0;
+            powerSign = 0;
+            setPower(0);
+            return;
+        }
+        // Zero feedforward when acquiring a new target or switching cells.
+        boolean jumped = Double.isNaN(lastTarget) || goalJumped;
         double rawRate = jumped ? 0 : (target - lastTarget) / dt;
         targetRate = jumped ? 0 : targetRate + RATE_FILTER * (rawRate - targetRate);
         lastTarget = target;
-        goalJumped = branchJumped = false;
+        goalJumped = false;
 
         double error = target - current;
+        if (mode == Mode.HOLD_ANGLE && Math.abs(error) <= TOLERANCE) {
+            powerSign = 0;
+            setPower(0);
+            return;
+        }
         double power = kP * error + kD * (targetRate - velocity) + kV * targetRate;
         if (Math.abs(error) > TOLERANCE) power += kS * Math.signum(error);
         power = Range.clip(power, -MAX_POWER, MAX_POWER);
 
-        if (unwinding && Math.abs(error) < TOLERANCE) unwinding = false;
-        setPower(limitAware(power, current));
+        driveWithEncoderCheck(limitAware(power, current), current);
     }
 
     // ===================== Aiming math =====================
@@ -202,49 +346,80 @@ public class Turret {
         double left = -TURRET_OFFSET_Y_MM / 25.4;   // Pedro robot frame: +y LEFT (yours: - = left)
         double tx = x + fwd * Math.cos(h) - left * Math.sin(h);
         double ty = y + fwd * Math.sin(h) + left * Math.cos(h);
+        double distance = Math.hypot(goalX - tx, goalY - ty);
+        if (!Double.isFinite(distance) || distance < 1e-6 || !Double.isFinite(h)) {
+            return Double.NaN;
+        }
         double fieldAngle = Math.atan2(goalY - ty, goalX - tx);
-        return wrap(fieldAngle - h);
+        return fieldAngle - h;
     }
 
     // ===================== Cable management =====================
-    private double usable() { return HARD_LIMIT - SAFETY_MARGIN; }
+    private double lowerTargetLimit() { return lowerClearance + SAFETY_MARGIN; }
+    private double upperTargetLimit() { return upperClearance - SAFETY_MARGIN; }
 
     /**
-     * Each aim direction can be written as a, a±360°, ... Keep only copies inside the
-     * usable range and take the one closest to the current aim. With ±175° usable there
-     * is a 10° blind spot directly behind: there we WAIT at the limit we're already on,
-     * and only swing the long way (unwind) once the goal comes out the other side.
+     * Acquire the nearest reachable angle, then follow that angle continuously through
+     * the heading wrap. Pause at a cable limit until the angle comes back into range.
      */
-    private double chooseBranch(double wrapped, double current) {
-        double hi = usable(), lo = -hi;
-        double ref = Double.isNaN(lastTarget) ? current : lastTarget;
-
-        double best = Double.NaN, bestDist = Double.POSITIVE_INFINITY;
-        for (int k = -2; k <= 2; k++) {
-            double c = wrapped + k * 2 * Math.PI;
-            if (c < lo || c > hi) continue;
-            double d = Math.abs(c - ref);
-            if (d < bestDist) { bestDist = d; best = c; }
+    private double chooseBranch(double bearing, double current) {
+        double hi = upperTargetLimit(), lo = lowerTargetLimit();
+        boolean acquire = Double.isNaN(lastTarget) || goalJumped;
+        if (aimLimitReached && !acquire) return Double.NaN;
+        double reference = acquire ? current : lastTarget;
+        double turn = 2 * Math.PI;
+        double turns = Math.rint((reference - bearing) / turn);
+        if (acquire) {
+            double first = Math.ceil((lo - bearing) / turn);
+            double last = Math.floor((hi - bearing) / turn);
+            if (first > last) return Double.NaN;
+            turns = Range.clip(turns, first, last);
         }
-        if (Double.isNaN(best)) best = (ref >= 0) ? hi : lo;   // blind spot: stay on our side
-
-        if (!Double.isNaN(lastTarget) && Math.abs(best - lastTarget) > Math.PI) {
-            unwinding = true;
-            branchJumped = true;
+        double candidate = bearing + turns * turn;
+        if (candidate >= lo && candidate <= hi) {
+            aimLimitReached = false;
+            return candidate;
         }
-        return best;
+        aimLimitReached = !acquire && Double.isFinite(candidate);
+        return Double.NaN;
     }
 
-    /** Never push past ±180°, and slow down as we approach it. Applies to every mode. */
+    /** Slow down toward the buffered target limits. */
     private double limitAware(double power, double current) {
         if (power == 0) return 0;
-        double room = power > 0 ? HARD_LIMIT - current : current + HARD_LIMIT;
+        double room = power > 0 ? upperTargetLimit() - current : current - lowerTargetLimit();
         if (room <= 0) return 0;
         if (room < SLOWDOWN_ZONE) {
             double cap = Math.max(MIN_LIMIT_POWER, MAX_POWER * room / SLOWDOWN_ZONE);
             power = Range.clip(power, -cap, cap);
         }
         return power;
+    }
+
+    private void driveWithEncoderCheck(double power, double current) {
+        int direction = (int) Math.signum(power);
+        long now = System.nanoTime();
+        if (direction != powerSign || direction == 0) {
+            powerSign = direction;
+            progressTime = now;
+            progressAngle = current;
+        } else {
+            double progress = direction * (current - progressAngle);
+            if (progress < -MIN_PROGRESS) {
+                fault = "Turret moved the wrong way. Check servo direction.";
+                off();
+                return;
+            }
+            if (progress >= MIN_PROGRESS) {
+                progressTime = now;
+                progressAngle = current;
+            } else if (now - progressTime >= NO_PROGRESS_NS && Math.abs(target - current) > TOLERANCE) {
+                fault = "No turret encoder movement. Check wiring and clearance.";
+                off();
+                return;
+            }
+        }
+        setPower(power);
     }
 
     // ===================== Homing =====================
@@ -265,8 +440,7 @@ public class Turret {
 
         // CREEP
         if (isSwitchPressed()) {
-            double sign = ENCODER_REVERSED ? -1 : 1;
-            zeroTicks = encoder.getCurrentPosition() - sign * HOME_SWITCH_ANGLE * TICKS_PER_RAD;
+            zeroTicks = encoderTicks() - encoderSign * HOME_SWITCH_ANGLE * TICKS_PER_RAD;
             finishHoming(true);
             return;
         }
@@ -291,14 +465,15 @@ public class Turret {
     }
     private void acceptZero() {
         RobotState.turretZeroTicks = zeroTicks;
+        RobotState.turretEncoderSign = encoderSign;
         RobotState.turretZeroValid = true;
     }
-    private void resetHistory() { lastTarget = Double.NaN; targetRate = 0; unwinding = false; }
+    private void resetHistory() {
+        lastTarget = Double.NaN;
+        targetRate = 0;
+        powerSign = 0;
+        aimLimitReached = false;
+    }
     private void setPower(double p) { lastPower = p; servo.setPower(p); }
 
-    private static double wrap(double a) {
-        while (a > Math.PI)   a -= 2 * Math.PI;
-        while (a <= -Math.PI) a += 2 * Math.PI;
-        return a;
-    }
 }
