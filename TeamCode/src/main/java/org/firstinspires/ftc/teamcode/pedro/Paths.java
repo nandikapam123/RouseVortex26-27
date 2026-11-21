@@ -10,7 +10,7 @@ public class Paths {
     private final PoseFactory poseFactory = PoseFactory.degrees();
 
     // Starting position
-    private final Pose start = poseFactory.of(9, 14, 270);
+    private final Pose start = poseFactory.of(9, 14, 45);
 
     // Path 1: Loading Zone Approach
     private final Pose loadingZoneApproach =
@@ -67,7 +67,7 @@ public class Paths {
     public Path loadingZoneApproach() {
         return com.pedropathing.api.Paths
                 .line(start, loadingZoneApproach)
-                .constant(loadingZoneApproach);
+                .linear(start, loadingZoneApproach);
     }
 
     // Path 2
