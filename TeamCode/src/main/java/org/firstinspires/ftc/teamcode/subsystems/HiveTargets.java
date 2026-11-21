@@ -47,7 +47,11 @@ public class HiveTargets {
         else if (y > SPLIT_Y + SPLIT_HYSTERESIS) useUpper = true;
         else if (y < SPLIT_Y - SPLIT_HYSTERESIS) useUpper = false;
 
-        double[] hive = useUpper ? new double[]{RED_UPPER_X, RED_UPPER_Y}
+        return cell(useUpper, alliance);
+    }
+
+    public double[] cell(boolean upper, Alliance alliance) {
+        double[] hive = upper ? new double[]{RED_UPPER_X, RED_UPPER_Y}
                 : new double[]{RED_LOWER_X, RED_LOWER_Y};
         return alliance == Alliance.BLUE ? mirror(hive) : hive;   // red frame -> blue
     }

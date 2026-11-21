@@ -9,6 +9,8 @@ import com.pedropathing.math.Pose;
 import com.pedropathing.paths.Path;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import org.firstinspires.ftc.teamcode.subsystems.HiveTargets;
+import org.firstinspires.ftc.teamcode.subsystems.RobotState;
 
 import static com.pedropathing.ivy.Scheduler.schedule;
 import static com.pedropathing.ivy.commands.Commands.waitMs;
@@ -21,6 +23,8 @@ public class Auton extends OpMode {
 
     private Follower follower;
     private Shooter shooter;
+    private TurretController turret;
+    private boolean started;
 
     private final PoseFactory poseFactory = PoseFactory.degrees();
 
@@ -81,20 +85,32 @@ public class Auton extends OpMode {
     @Override
     public void init() {
         Scheduler.reset();
+        storePose.autonomousEndPose = null;
+        RobotState.alliance = HiveTargets.Alliance.RED;
         shooter = new Shooter(hardwareMap);
         follower = Constants.create(hardwareMap);
         follower.setPose(start);
         follower.update();
+        turret = new TurretController(hardwareMap);
+    }
+
+    @Override
+    public void init_loop() {
+        turret.calibrateInInit(gamepad1, telemetry);
+        telemetry.update();
     }
 
     @Override
     public void start() {
+        started = true;
+        turret.holdAtStart();
         schedule(autoRoutine());
     }
 
     @Override
     public void loop() {
         follower.update();
+        turret.updateHold(telemetry);
         Scheduler.execute();
 
         telemetry.addData("X", follower.pose().x());
@@ -106,11 +122,14 @@ public class Auton extends OpMode {
 
     @Override
     public void stop() {
+        if (turret != null) {
+            turret.stop();
+        }
         if (shooter != null) {
             shooter.stop();
         }
 
-        if (follower != null) {
+        if (started && follower != null && turret.canUsePose(follower.pose())) {
             storePose.autonomousEndPose = follower.pose();
         }
     }

@@ -10,16 +10,24 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 @TeleOp(name = "Satvik Stuff")
 public class fieldCentric extends OpMode {
     private Follower follower;
+    private TurretController turret;
 
     @Override
     public void init() {
         follower = Constants.create(hardwareMap);
+        turret = new TurretController(hardwareMap);
+        turret.seedTeleOpPose(follower);
+    }
 
-        Pose startPose = (storePose.autonomousEndPose != null)
-                ? storePose.autonomousEndPose
-                : new Pose(0, 0, 0);
-        follower.setPose(startPose);
-        follower.update();
+    @Override
+    public void init_loop() {
+        turret.teleOpInit(gamepad1, telemetry);
+        telemetry.update();
+    }
+
+    @Override
+    public void start() {
+        turret.startTeleOp();
     }
 
     @Override
@@ -39,6 +47,7 @@ public class fieldCentric extends OpMode {
         follower.update();
 
         Pose currentPose = follower.pose();
+        turret.updateTeleOp(currentPose, gamepad1, telemetry);
         telemetry.addData("X", currentPose.x());
         telemetry.addData("Y", currentPose.y());
         telemetry.addData("Heading", Math.toDegrees(currentPose.heading()));
@@ -48,5 +57,9 @@ public class fieldCentric extends OpMode {
         telemetry.addData("Turn", turn);
         telemetry.update();
     }
-}
 
+    @Override
+    public void stop() {
+        if (turret != null) turret.stop();
+    }
+}
