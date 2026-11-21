@@ -8,19 +8,9 @@ import org.firstinspires.ftc.teamcode.subsystems.Turret;
 
 @TeleOp(name = "Turret 90 Degree Test", group = "Motor Tests")
 public class TurretTurnTest extends OpMode {
-    private static final String[] CALIBRATION_STEPS = {
-            "Point the turret forward and press A.",
-            "Turn left by hand while every wire has slack, then press A.",
-            "Turn right by hand while every wire has slack, then press A."
-    };
-
     private final ElapsedTime moveTimer = new ElapsedTime();
-    private final int[] marks = new int[3];
+    private TurretCalibration calibration;
     private Turret turret;
-    private int markCount;
-    private boolean previousA;
-    private boolean previousX;
-    private boolean invalidMarks;
     private double targetDegrees;
     private double timeToTarget;
     private boolean moving;
@@ -33,8 +23,7 @@ public class TurretTurnTest extends OpMode {
         } catch (IllegalArgumentException e) {
             turret = null;
         }
-        markCount = 0;
-        previousA = previousX = invalidMarks = false;
+        calibration = new TurretCalibration();
         targetDegrees = Double.NaN;
         timeToTarget = Double.NaN;
         moving = false;
@@ -42,38 +31,7 @@ public class TurretTurnTest extends OpMode {
 
     @Override
     public void init_loop() {
-        if (turret == null) {
-            telemetry.addLine("Configure turret as a CR servo and turretEncoder as its encoder motor port.");
-            telemetry.update();
-            return;
-        }
-        if (gamepad1.x && !previousX) {
-            turret.clearCableCalibration();
-            markCount = 0;
-            invalidMarks = false;
-        }
-        boolean aPressed = gamepad1.a;
-        if (!turret.hasCableCalibration() && aPressed && !previousA) {
-            marks[markCount++] = turret.encoderTicks();
-            if (markCount == marks.length) {
-                invalidMarks = !turret.calibrateCableClearance(marks[0], marks[1], marks[2]);
-                if (invalidMarks) markCount = 0;
-            }
-        }
-        previousA = aPressed;
-        previousX = gamepad1.x;
-
-        if (turret.hasCableCalibration()) {
-            telemetry.addData("Turret ready (deg)", "%.1f", Math.toDegrees(turret.getAngle()));
-            telemetry.addLine("Return the turret to center before START. X recalibrates.");
-        } else {
-            telemetry.addLine(CALIBRATION_STEPS[markCount]);
-            if (markCount > 0) {
-                telemetry.addData("Distance from center", "%.1f deg (%.0f max)",
-                        Math.toDegrees(turret.distanceFromMark(marks[0])), Math.toDegrees(Turret.HARD_LIMIT));
-            }
-            if (invalidMarks) telemetry.addLine("Mark a cable-safe position on both sides of center.");
-        }
+        calibration.update(turret, gamepad1, telemetry);
         telemetry.update();
     }
 

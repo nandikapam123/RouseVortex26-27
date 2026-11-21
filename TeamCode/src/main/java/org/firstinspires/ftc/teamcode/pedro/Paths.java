@@ -10,7 +10,7 @@ public class Paths {
     private final PoseFactory poseFactory = PoseFactory.degrees();
 
     // Starting position
-    private final Pose start = poseFactory.of(9, 24, 0);
+    private final Pose start = poseFactory.of(9, 24, 270);
 
     // Path 1: Opening shot position
     private final Pose openingShotPosition =
